@@ -14,6 +14,10 @@ reading() { read -p "$(red "$1")" "$2"; }
 
 USERNAME=$(whoami)
 HOSTNAME=$(hostname)
+
+TCP_PORT=60879
+UDP_PORT1=46488
+UDP_PORT2=60879
 export UUID=${UUID:-'bc97f674-c578-4940-9234-0a1da46041b9'}
 
 [[ "$HOSTNAME" == "s1.ct8.pl" ]] && WORKDIR="domains/${USERNAME}.ct8.pl/logs" || WORKDIR="domains/${USERNAME}.serv00.net/logs"
@@ -21,7 +25,7 @@ export UUID=${UUID:-'bc97f674-c578-4940-9234-0a1da46041b9'}
 
 install_singbox() {
   cd $WORKDIR
-  pkill -kill -u lingjuli 
+  pkill -kill -u $USER
   generate_config
   download_singbox && wait
   run_sb && sleep 3
@@ -105,7 +109,7 @@ generate_config() {
        "tag": "hysteria-in",
        "type": "hysteria2",
        "listen": "::",
-       "listen_port": 55502,
+       "listen_port": $UDP_PORT1,
        "users": [
          {
              "password": "$UUID"
@@ -125,7 +129,7 @@ generate_config() {
       "tag": "vmess-ws-in",
       "type": "vmess",
       "listen": "::",
-      "listen_port": 55501,
+      "listen_port": $TCP_PORT,
       "users": [
       {
         "uuid": "$UUID"
@@ -141,7 +145,7 @@ generate_config() {
       "tag": "tuic-in",
       "type": "tuic",
       "listen": "::",
-      "listen_port": 55503,
+      "listen_port": $UDP_PORT2,
       "users": [
         {
           "uuid": "$UUID",
@@ -270,11 +274,11 @@ run_sb() {
   fi
 
   if [ -e bot ]; then
-    nohup ./bot tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile boot.log --loglevel info --url http://localhost:55501 >/dev/null 2>&1 &
+    nohup ./bot tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile boot.log --loglevel info --url http://localhost:$TCP_PORT >/dev/null 2>&1 &
     sleep 2
     pgrep -x "bot" >/dev/null && green "bot is running" || {
       red "bot is not running, restarting..."
-      pkill -x "bot" && nohup ./bot "${tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile boot.log --loglevel info --url http://localhost:55501}" >/dev/null 2>&1 &
+      pkill -x "bot" && nohup ./bot "${tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile boot.log --loglevel info --url http://localhost:$TCP_PORT}" >/dev/null 2>&1 &
       sleep 2
       purple "bot restarted"
     }
@@ -293,13 +297,13 @@ get_links() {
   sleep 1
   # yellow "注意：v2ray或其他软件的跳过证书验证需设置为true,否则hy2或tuic节点可能不通\n"
   cat >list.txt <<EOF
-vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$ISP\", \"add\": \"$IP\", \"port\": \"55501\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)
+vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$ISP\", \"add\": \"$IP\", \"port\": \"$TCP_PORT\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)
 
 vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$ISP\", \"add\": \"www.visa.com.tw\", \"port\": \"443\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"$argodomain\", \"path\": \"/vmess?ed=2048\", \"tls\": \"tls\", \"sni\": \"$argodomain\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)
 
-hysteria2://$UUID@$IP:55502/?sni=www.bing.com&alpn=h3&insecure=1#$ISP
+hysteria2://$UUID@$IP:$UDP_PORT1/?sni=www.bing.com&alpn=h3&insecure=1#$ISP
 
-tuic://$UUID:admin123@$IP:55503?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#$ISP
+tuic://$UUID:admin123@$IP:$UDP_PORT2?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#$ISP
 EOF
   cat list.txt
   purple "list.txt saved successfully"
