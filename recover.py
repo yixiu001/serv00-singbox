@@ -1,62 +1,133 @@
-import os
 import json
-import subprocess
+import asyncio
+from pyppeteer import launch
+from datetime import datetime, timedelta
+import aiofiles
+import random
 import requests
+import os
 
-def send_telegram_message(token, chat_id, message):
-    telegram_url = f"https://api.telegram.org/bot{token}/sendMessage"
-    telegram_payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "reply_markup": '{"inline_keyboard":[[{"text":"问题反馈❓","url":"https://t.me/yxjsjl"}]]}'
-    }
+# 从环境变量中获取 Telegram Bot Token 和 Chat ID
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-    response = requests.post(telegram_url, json=telegram_payload)
-    print(f"Telegram 请求状态码：{response.status_code}")
-    print(f"Telegram 请求返回内容：{response.text}")
+def format_to_iso(date):
+    return date.strftime('%Y-%m-%d %H:%M:%S')
 
-    if response.status_code != 200:
-        print("发送 Telegram 消息失败")
-    else:
-        print("发送 Telegram 消息成功")
+async def delay_time(ms):
+    await asyncio.sleep(ms / 1000)
 
-# 从环境变量中获取密钥
-accounts_json = os.getenv('ACCOUNTS_JSON')
-telegram_token = os.getenv('TELEGRAM_BOT_TOKEN')
-telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+# 全局浏览器实例
+browser = None
 
-# 检查并解析 JSON 字符串
-try:
-    servers = json.loads(accounts_json)
-except json.JSONDecodeError:
-    error_message = "ACCOUNTS_JSON 参数格式错误"
-    print(error_message)
-    send_telegram_message(telegram_token, telegram_chat_id, error_message)
-    exit(1)
+# telegram消息
+message = 'serv00&ct8自动化脚本运行\n'
 
-# 初始化汇总消息
-summary_message = "serv00-singbox 恢复操作结果：\n"
+async def login(username, password, panel):
+    global browser
 
-# 默认恢复命令
-default_restore_command = "./yixiu.sh"
-
-# 遍历服务器列表并执行恢复操作
-for server in servers:
-    host = server['host']
-    port = server['port']
-    username = server['username']
-    password = server['password']
-    cron_command = server.get('cron', default_restore_command)
-
-    print(f"连接到 {host}...")
-
-    # 执行恢复命令（这里假设使用 SSH 连接和密码认证）
-    restore_command = f"sshpass -p '{password}' ssh -o StrictHostKeyChecking=no -p {port} {username}@{host} '{cron_command}'"
+    page = None  # 确保 page 在任何情况下都被定义
+    serviceName = 'ct8' if 'ct8' in panel else 'serv00'
     try:
-        output = subprocess.check_output(restore_command, shell=True, stderr=subprocess.STDOUT)
-        summary_message += f"\n成功恢复 {host} 上的 vless 服务：\n{output.decode('utf-8')}"
-    except subprocess.CalledProcessError as e:
-        summary_message += f"\n无法恢复 {host} 上的 vless 服务：\n{e.output.decode('utf-8')}"
+        if not browser:
+            browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
 
-# 发送汇总消息到 Telegram
-send_telegram_message(telegram_token, telegram_chat_id, summary_message)
+        page = await browser.newPage()
+        url = f'https://{panel}/login/?next=/'
+        await page.goto(url)
+
+        username_input = await page.querySelector('#id_username')
+        if username_input:
+            await page.evaluate('''(input) => input.value = ""''', username_input)
+
+        await page.type('#id_username', username)
+        await page.type('#id_password', password)
+
+        login_button = await page.querySelector('#submit')
+        if login_button:
+            await login_button.click()
+        else:
+            raise Exception('无法找到登录按钮')
+
+        await page.waitForNavigation()
+
+        is_logged_in = await page.evaluate('''() => {
+            const logoutButton = document.querySelector('a[href="/logout/"]');
+            return logoutButton !== null;
+        }''')
+
+        return is_logged_in
+
+    except Exception as e:
+        print(f'{serviceName}账号 {username} 登录时出现错误: {e}')
+        return False
+
+    finally:
+        if page:
+            await page.close()
+
+async def main():
+    global message
+    message = 'serv00&ct8自动化脚本运行\n'
+
+    try:
+        async with aiofiles.open('accounts.json', mode='r', encoding='utf-8') as f:
+            accounts_json = await f.read()
+        accounts = json.loads(accounts_json)
+    except Exception as e:
+        print(f'读取 accounts.json 文件时出错: {e}')
+        return
+
+    for account in accounts:
+        username = account['username']
+        password = account['password']
+        panel = account['panel']
+
+        serviceName = 'ct8' if 'ct8' in panel else 'serv00'
+        is_logged_in = await login(username, password, panel)
+
+        if is_logged_in:
+            now_utc = format_to_iso(datetime.utcnow())
+            now_beijing = format_to_iso(datetime.utcnow() + timedelta(hours=8))
+            success_message = f'{serviceName}账号 {username} 于北京时间 {now_beijing}（UTC时间 {now_utc}）登录成功！'
+            message += success_message + '\n'
+            print(success_message)
+        else:
+            message += f'{serviceName}账号 {username} 登录失败，请检查{serviceName}账号和密码是否正确。\n'
+            print(f'{serviceName}账号 {username} 登录失败，请检查{serviceName}账号和密码是否正确。')
+
+        delay = random.randint(1000, 8000)
+        await delay_time(delay)
+        
+    message += f'所有{serviceName}账号登录完成！'
+    await send_telegram_message(message)
+    print(f'所有{serviceName}账号登录完成！')
+
+async def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'text': message,
+        'reply_markup': {
+            'inline_keyboard': [
+                [
+                    {
+                        'text': '问题反馈❓',
+                        'url': 'https://t.me/yxjsjl'
+                    }
+                ]
+            ]
+        }
+    }
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            print(f"发送消息到Telegram失败: {response.text}")
+    except Exception as e:
+        print(f"发送消息到Telegram时出错: {e}")
+
+if __name__ == '__main__':
+    asyncio.run(main())
