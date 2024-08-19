@@ -15,10 +15,10 @@ reading() { read -p "$(red "$1")" "$2"; }
 USERNAME=$(whoami)
 HOSTNAME=$(hostname)
 
-TCP_PORT=60879
-UDP_PORT1=46488
-UDP_PORT2=60879
-export UUID=${UUID:-'bc97f674-c578-4940-9234-0a1da46041b9'}
+TCP_PORT=40481
+UDP_PORT1=40482
+UDP_PORT2=53428
+export UUID=${UUID:-'b0054f26-dd57-463b-b1f6-4d1116c2e6a4'}
 
 [[ "$HOSTNAME" == "s1.ct8.pl" ]] && WORKDIR="domains/${USERNAME}.ct8.pl/logs" || WORKDIR="domains/${USERNAME}.serv00.net/logs"
 [ -d "$WORKDIR" ] || (mkdir -p "$WORKDIR" && chmod 777 "$WORKDIR")
